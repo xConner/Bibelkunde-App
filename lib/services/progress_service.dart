@@ -12,30 +12,33 @@ class ProgressService {
     return user.uid;
   }
 
-  /// Initialisiert fehlende Progress-Daten
+  /// Nur fehlende Dokumente anlegen
   Future<void> initIfMissing(List<String> perikopeIds) async {
+    final collection = _db.collection('users').doc(uid).collection('progress');
+
     final batch = _db.batch();
 
     for (final id in perikopeIds) {
-      final ref = _db
-          .collection('users')
-          .doc(uid)
-          .collection('progress')
-          .doc(id);
+      final ref = collection.doc(id);
 
-      batch.set(ref, {
-        "weight": 5,
-        "streak": 0,
-        "wrongStreak": 0,
-        "correctCount": 0,
-        "wrongCount": 0,
-        "lastAnswered": null,
-      }, SetOptions(merge: true));
+      final existing = await ref.get();
+
+      if (!existing.exists) {
+        batch.set(ref, {
+          "weight": 5,
+          "streak": 0,
+          "wrongStreak": 0,
+          "correctCount": 0,
+          "wrongCount": 0,
+          "lastAnswered": null,
+        });
+      }
     }
 
     await batch.commit();
   }
 
+  /// Entfernt Progress-Einträge gelöschter Perikopen
   Future<void> syncWithPerikopen(List<String> validIds) async {
     final ref = _db.collection('users').doc(uid).collection('progress');
 
@@ -43,7 +46,6 @@ class ProgressService {
 
     final batch = _db.batch();
 
-    // ❌ alte Einträge löschen
     for (final doc in snapshot.docs) {
       if (!validIds.contains(doc.id)) {
         batch.delete(doc.reference);
@@ -53,7 +55,6 @@ class ProgressService {
     await batch.commit();
   }
 
-  /// Lädt alle Progress-Daten
   Future<Map<String, dynamic>> loadAllProgress() async {
     final snapshot = await _db
         .collection('users')
@@ -61,7 +62,7 @@ class ProgressService {
         .collection('progress')
         .get();
 
-    final Map<String, dynamic> result = {};
+    final result = <String, dynamic>{};
 
     for (final doc in snapshot.docs) {
       result[doc.id] = doc.data();
@@ -70,8 +71,11 @@ class ProgressService {
     return result;
   }
 
-  /// Update nach Antwort
-  Future<void> updateProgress(String perikopeId, bool correct) async {
+  /// Aktualisiert Progress und gibt die neuen Werte zurück
+  Future<Map<String, dynamic>> updateProgress(
+    String perikopeId,
+    bool correct,
+  ) async {
     final ref = _db
         .collection('users')
         .doc(uid)
@@ -101,16 +105,19 @@ class ProgressService {
       weight += (2 + wrongStreak);
     }
 
-    if (weight < 1) weight = 1;
-    if (weight > 20) weight = 20;
+    weight = weight.clamp(1, 20);
 
-    await ref.set({
+    final newData = {
       "weight": weight,
       "streak": streak,
       "wrongStreak": wrongStreak,
       "correctCount": correctCount,
       "wrongCount": wrongCount,
       "lastAnswered": Timestamp.now(),
-    }, SetOptions(merge: true));
+    };
+
+    await ref.set(newData, SetOptions(merge: true));
+
+    return newData;
   }
 }

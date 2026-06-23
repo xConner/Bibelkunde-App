@@ -91,7 +91,9 @@ class _QuizScreenState extends State<QuizScreen> {
 
     final correct = result.status == QuizStatus.correct;
 
-    await progressService.updateProgress(p.id, correct);
+    final updated = await progressService.updateProgress(p.id, correct);
+
+    progress[p.id] = updated;
   }
 
   void next() {
